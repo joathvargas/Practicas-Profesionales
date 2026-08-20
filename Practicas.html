@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Firmas Autorizadas y Análisis - FACPYA</title>
     
-    <!-- Librería SheetJS para leer y renderizar hojas de Excel -->
+    <!-- Librería SheetJS para leer y exportar hojas de Excel -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <!-- Librería Chart.js para visualización de gráficos dinámicos -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -139,10 +139,19 @@
         }
         .btn-excel {
             background-color: var(--excel-color);
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
             width: auto;
-            padding: 8px 14px;
+            padding: 10px 14px;
             font-size: 14px;
             white-space: nowrap;
+            font-weight: bold;
+            transition: opacity 0.2s;
+        }
+        .btn-excel:hover {
+            opacity: 0.9;
         }
 
         /* Filtros y Búsqueda */
@@ -247,9 +256,10 @@
 
         .controls-grid {
             display: grid;
-            grid-template-columns: 1fr 1fr;
+            grid-template-columns: 1fr 1fr auto;
             gap: 15px;
             margin-bottom: 20px;
+            align-items: flex-end;
         }
 
         .chart-container {
@@ -413,19 +423,22 @@
                 </div>
             </div>
 
-            <!-- Controles de Gráfico -->
+            <!-- Controles de Gráfico y Descarga -->
             <div class="controls-grid">
-                <div class="form-group">
+                <div class="form-group" style="margin-bottom:0;">
                     <label><b>Seleccionar Columna para Analizar:</b></label>
                     <select id="columnSelector" onchange="actualizarGrafico()"></select>
                 </div>
-                <div class="form-group">
+                <div class="form-group" style="margin-bottom:0;">
                     <label><b>Tipo de Gráfico:</b></label>
                     <select id="chartTypeSelector" onchange="actualizarGrafico()">
                         <option value="bar">Barra Vertical</option>
                         <option value="doughnut">Dona / Pastel</option>
                         <option value="polarArea">Área Polar</option>
                     </select>
+                </div>
+                <div>
+                    <button class="btn-excel" onclick="descargarAnalisisExcel()">📥 Descargar Análisis (Excel)</button>
                 </div>
             </div>
 
@@ -471,6 +484,7 @@
         let filtroLetraActual = '';
         let currentExcelData = [];
         let currentChartInstance = null;
+        let nombreArchivoCargado = '';
 
         // ==========================================
         // CONFIGURACIÓN DE INDEXEDDB PARA PERSISTENCIA LOCAL
@@ -608,7 +622,6 @@
             }
         }
 
-        // FUNCIÓN PARA BORRAR TODOS LOS PDFs
         async function borrarTodosPDFs() {
             const pdfsActivos = documentos.filter(d => d.activo && !d.esExcel);
             
@@ -725,6 +738,7 @@
         }
 
         function analizarDatosExcel(file) {
+            nombreArchivoCargado = file.name;
             const reader = new FileReader();
             reader.onload = function(e) {
                 const data = new Uint8Array(e.target.result);
@@ -856,6 +870,66 @@
                     } : {}
                 }
             });
+        }
+
+        // FUNCIÓN PARA DESCARGAR EL ANÁLISIS EN EXCEL
+        function descargarAnalisisExcel() {
+            if (!currentExcelData || currentExcelData.length === 0) {
+                alert("Primero debes cargar y analizar un archivo Excel.");
+                return;
+            }
+
+            const colName = document.getElementById('columnSelector').value;
+            if (!colName) return;
+
+            // Calcular frecuencia de la columna seleccionada
+            const counts = {};
+            let totalValoresLlenos = 0;
+
+            currentExcelData.forEach(row => {
+                let val = String(row[colName]).trim();
+                if (!val || val === "N/A") val = "(Vacío/Desconocido)";
+                counts[val] = (counts[val] || 0) + 1;
+                totalValoresLlenos++;
+            });
+
+            const sortedKeys = Object.keys(counts).sort((a, b) => counts[b] - counts[a]);
+            const totalCols = Object.keys(currentExcelData[0]).length;
+
+            // Construir estructura del reporte para Excel
+            const sheetData = [
+                ["ANÁLISIS ESTADÍSTICO DE BASE DE DATOS"],
+                ["Archivo Origen:", nombreArchivoCargado || "Desconocido"],
+                ["Total Registros:", currentExcelData.length],
+                ["Total Columnas:", totalCols],
+                ["Columna Analizada:", colName],
+                ["Valores Únicos:", Object.keys(counts).length],
+                [], // Fila en blanco
+                ["Categoría / Valor", "Frecuencia (Conteo)", "Porcentaje del Total"]
+            ];
+
+            sortedKeys.forEach(key => {
+                const freq = counts[key];
+                const porcentaje = ((freq / currentExcelData.length) * 100).toFixed(2) + "%";
+                sheetData.push([key, freq, porcentaje]);
+            });
+
+            // Generar libro de trabajo
+            const wb = XLSX.utils.book_new();
+            const ws = XLSX.utils.aoa_to_sheet(sheetData);
+
+            // Ajuste de anchos de columna
+            ws['!cols'] = [
+                { wch: 45 },
+                { wch: 20 },
+                { wch: 20 }
+            ];
+
+            XLSX.utils.book_append_sheet(wb, ws, "Análisis de Columna");
+
+            // Descargar el archivo
+            const nombreLimpio = colName.replace(/[^a-zA-Z0-9]/g, "_");
+            XLSX.writeFile(wb, `Analisis_${nombreLimpio}.xlsx`);
         }
 
         actualizarContador();
